@@ -1,6 +1,6 @@
 import { View, TouchableOpacity, Text, Animated } from 'react-native';
 import React, { useState, useEffect, useRef } from 'react';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, Polyline } from 'react-native-maps';
 import {
   requestForegroundPermissionsAsync,
   getCurrentPositionAsync,
@@ -8,12 +8,16 @@ import {
   watchPositionAsync,
   LocationAccuracy
 } from 'expo-location';
+import axios from 'axios';
+import polyline from '@mapbox/polyline';
 
 import { styles } from './styles';
 
 export default function App() {
   const [location, setLocation] = useState<LocationObject | null>(null);
   const [buttonVisible, setButtonVisible] = useState(true);
+  const [routeCoordinates, setRouteCoordinates] = useState([]);
+
   const pulseAnimation = useRef(new Animated.Value(1)).current;
   const fadeAnimation = useRef(new Animated.Value(1)).current;
 
@@ -54,17 +58,32 @@ export default function App() {
   const handleSearchButtonPress = () => {
     setButtonVisible(false);
     if (mapRef.current) {
-      const initialRegion = {
-        latitude: location?.coords.latitude || 0,
-        longitude: location?.coords.longitude || 0,
-        latitudeDelta: 0.005,
-        longitudeDelta: 0.005
-      };
-      mapRef.current.animateToRegion(initialRegion, 1000);
+      const origin = `${location?.coords.latitude},${location?.coords.longitude}`;
+      const destination = '-8.292646,-35.951854';
+      const apiUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${origin}&destination=${destination}&key=AIzaSyDpXGz7EJgzQpE0tWOBLDqXWWamkMgWvLU`;
+
+      axios
+        .get(apiUrl)
+        .then((response) => {
+          const points = polyline.decode(response.data.routes[0].overview_polyline.points);
+          const routeCoords = points.map((point: [number, number]) => ({
+            latitude: point[0],
+            longitude: point[1],
+          }));
+          setRouteCoordinates(routeCoords);
+          console.log('Resposta da API de direções:', response.data);
+          setButtonVisible(routeCoords.length === 0); // Verifica se há rotas, define a visibilidade do botão "SEARCH"
+        })
+        
+        .catch((error) => {
+          console.error('Erro ao obter a rota:', error);
+        });
     }
-    setTimeout(() => {
-      setButtonVisible(true);
-    }, 3000);
+  };
+
+  const handleClearRoutesButtonPress = () => {
+    setRouteCoordinates([]);
+    setButtonVisible(true); // Torna o botão "SEARCH" visível novamente ao limpar as rotas
   };
 
   const handleButtonPressIn = () => {
@@ -103,7 +122,7 @@ export default function App() {
       pulseAnimationConfig.stop();
       pulseAnimation.setValue(1);
     }
-
+    
     Animated.timing(fadeAnimation, {
       toValue: buttonVisible ? 1 : 0,
       duration: 500,
@@ -124,6 +143,14 @@ export default function App() {
             longitudeDelta: 0.005
           }}
         >
+          {routeCoordinates.length > 0 && (
+            <Polyline
+              coordinates={routeCoordinates}
+              strokeWidth={4}
+              strokeColor="#00FFFF"
+            />
+          )}
+
           <Marker
             coordinate={{
               latitude: location.coords.latitude,
@@ -149,6 +176,12 @@ export default function App() {
           </TouchableOpacity>
         )}
       </Animated.View>
+      <TouchableOpacity
+        style={styles.clearRoutesButton}
+        onPress={handleClearRoutesButtonPress}
+      >
+        <Text style={styles.clearRoutesButtonText}>CLEAR</Text>
+      </TouchableOpacity>
     </View>
   );
-};
+}
